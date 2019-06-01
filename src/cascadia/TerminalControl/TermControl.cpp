@@ -94,7 +94,14 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
         Controls::Grid::SetColumn(swapChainPanel, 0);
         Controls::Grid::SetColumn(_scrollBar, 1);
 
-        _root = container;
+        Controls::Grid root{}, backgroundImageLayer{};
+        backgroundImageLayer.Children().Append(container);
+        root.Children().Append(backgroundImageLayer);
+
+        _root = root;
+        _acrylicLayer = container;
+        _backgroundImageLayer = backgroundImageLayer;
+
         _swapChainPanel = swapChainPanel;
         _controlRoot.Content(_root);
 
@@ -214,31 +221,43 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
         {
             // See if we've already got an acrylic background brush
             // to avoid the flicker when setting up a new one
-            auto acrylic = _root.Background().try_as<Media::AcrylicBrush>();
+            auto acrylic = _acrylicLayer.Background().try_as<Media::AcrylicBrush>();
 
             // Instantiate a brush if there's not already one there
             if (acrylic == nullptr)
             {
                 acrylic = Media::AcrylicBrush{};
-                acrylic.BackgroundSource(Media::AcrylicBackgroundSource::HostBackdrop);
             }
 
             // Apply brush settings
+            if (_settings.BackgroundImage().empty())
+            {
+                acrylic.BackgroundSource(Media::AcrylicBackgroundSource::HostBackdrop);
+            }
+            else
+            {
+                acrylic.BackgroundSource(Media::AcrylicBackgroundSource::Backdrop);
+            }
             acrylic.TintOpacity(_settings.TintOpacity());
 
             // Apply brush to control if it's not already there
-            if (_root.Background() != acrylic)
+            if (_acrylicLayer.Background() != acrylic)
             {
-                _root.Background(acrylic);
+                _acrylicLayer.Background(acrylic);
             }
         }
-        else if (!_settings.BackgroundImage().empty())
+        else
+        {
+            _acrylicLayer.Background(nullptr);
+        }
+
+        if (!_settings.BackgroundImage().empty())
         {
             Windows::Foundation::Uri imageUri{ _settings.BackgroundImage() };
 
             // Check if the existing brush is an image brush, and if not
             // construct a new one
-            auto brush = _root.Background().try_as<Media::ImageBrush>();
+            auto brush = _backgroundImageLayer.Background().try_as<Media::ImageBrush>();
 
             if (brush == nullptr)
             {
@@ -266,16 +285,26 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
             brush.Opacity(_settings.BackgroundImageOpacity());
 
             // Apply brush if it isn't already there
-            if (_root.Background() != brush)
+            if (_backgroundImageLayer.Background() != brush)
             {
-                _root.Background(brush);
+                _backgroundImageLayer.Background(brush);
             }
         }
         else
         {
+            _backgroundImageLayer.Background(nullptr);
+        }
+
+        if (!_settings.UseAcrylic())
+        {
             Media::SolidColorBrush solidColor{};
             _root.Background(solidColor);
         }
+        else
+        {
+            _root.Background(nullptr);
+        }
+
     }
 
     // Method Description:
@@ -299,7 +328,7 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
 
             if (_settings.UseAcrylic())
             {
-                if (auto acrylic = _root.Background().try_as<Media::AcrylicBrush>())
+                if (auto acrylic = _acrylicLayer.Background().try_as<Media::AcrylicBrush>())
                 {
                     acrylic.FallbackColor(bgColor);
                     acrylic.TintColor(bgColor);
@@ -315,6 +344,10 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
                 // This currently applies no changes to the image background
                 // brush itself.
 
+                if (auto solidColor = _root.Background().try_as<Media::SolidColorBrush>())
+                {
+                    solidColor.Color(bgColor);
+                }
                 // Set the default background as transparent to prevent the
                 // DX layer from overwriting the background image
                 _settings.DefaultBackground(ARGB(0, R, G, B));
@@ -356,6 +389,8 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
 
         _swapChainPanel = nullptr;
         _root = nullptr;
+        _backgroundImageLayer = nullptr;
+        _acrylicLayer = nullptr;
         _connection = nullptr;
     }
 
@@ -860,7 +895,7 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
         {
             try
             {
-                auto acrylicBrush = _root.Background().as<Media::AcrylicBrush>();
+                auto acrylicBrush = _acrylicLayer.Background().as<Media::AcrylicBrush>();
                 acrylicBrush.TintOpacity(acrylicBrush.TintOpacity() + effectiveDelta);
             }
             CATCH_LOG();
